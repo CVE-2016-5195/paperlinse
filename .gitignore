@@ -1,0 +1,25 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Config (contains secrets)
+config/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts in backend (built frontend is copied here)
+backend/frontend/

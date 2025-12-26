@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paperlinse - Document Management</title>
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+    <div class="app">
+        <nav class="sidebar">
+            <div class="logo">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                    <polyline points="10 9 9 9 8 9"></polyline>
+                </svg>
+                <span>Paperlinse</span>
+            </div>
+            <ul class="nav-menu">
+                <li class="nav-item active" data-page="dashboard">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="7"></rect>
+                        <rect x="14" y="3" width="7" height="7"></rect>
+                        <rect x="14" y="14" width="7" height="7"></rect>
+                        <rect x="3" y="14" width="7" height="7"></rect>
+                    </svg>
+                    <span>Dashboard</span>
+                </li>
+                <li class="nav-item" data-page="documents">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                        <polyline points="13 2 13 9 20 9"></polyline>
+                    </svg>
+                    <span>Documents</span>
+                </li>
+                <li class="nav-item" data-page="settings">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                    <span>Settings</span>
+                </li>
+            </ul>
+        </nav>
+        
+        <main class="content">
+            <!-- Dashboard Page -->
+            <div id="page-dashboard" class="page active">
+                <header class="page-header">
+                    <h1>Dashboard</h1>
+                </header>
+                <div class="dashboard-content">
+                    <div class="status-cards">
+                        <div class="status-card">
+                            <div class="status-icon pending">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <polyline points="12 6 12 12 16 14"></polyline>
+                                </svg>
+                            </div>
+                            <div class="status-info">
+                                <span class="status-value" id="pending-count">-</span>
+                                <span class="status-label">Pending</span>
+                            </div>
+                        </div>
+                        <div class="status-card">
+                            <div class="status-icon processed">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                                </svg>
+                            </div>
+                            <div class="status-info">
+                                <span class="status-value" id="processed-count">-</span>
+                                <span class="status-label">Processed</span>
+                            </div>
+                        </div>
+                        <div class="status-card">
+                            <div class="status-icon total">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                </svg>
+                            </div>
+                            <div class="status-info">
+                                <span class="status-value" id="total-count">-</span>
+                                <span class="status-label">Total Documents</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="setup-prompt" id="setup-prompt">
+                        <div class="setup-icon">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <circle cx="12" cy="12" r="3"></circle>
+                                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                            </svg>
+                        </div>
+                        <h2>Welcome to Paperlinse</h2>
+                        <p>Configure your incoming scan folder and document storage to get started.</p>
+                        <button class="btn btn-primary" onclick="navigateTo('settings')">Configure Settings</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Documents Page -->
+            <div id="page-documents" class="page">
+                <header class="page-header">
+                    <h1>Documents</h1>
+                    <div class="search-box">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <path d="m21 21-4.35-4.35"></path>
+                        </svg>
+                        <input type="text" placeholder="Search documents..." id="search-input">
+                    </div>
+                </header>
+                <div class="documents-content">
+                    <p class="placeholder-text">No documents yet. Configure your scan folder to start importing documents.</p>
+                </div>
+            </div>
+            
+            <!-- Settings Page -->
+            <div id="page-settings" class="page">
+                <header class="page-header">
+                    <h1>Settings</h1>
+                </header>
+                <div class="settings-content">
+                    <form id="settings-form">
+                        <section class="settings-section">
+                            <h2>Incoming Scan Folder</h2>
+                            <p class="section-description">Configure the folder where your scanner saves documents. Paperlinse will monitor this folder for new files.</p>
+                            
+                            <div class="form-group">
+                                <label for="incoming-path">Folder Path</label>
+                                <div class="input-with-button">
+                                    <input type="text" id="incoming-path" placeholder="/mnt/scanner or //server/share">
+                                    <button type="button" class="btn btn-secondary" onclick="testConnection('incoming')">Test</button>
+                                </div>
+                                <span class="form-hint">Local path or network share (e.g., /mnt/scanner, //fileserver/scans)</span>
+                                <div id="incoming-test-result" class="test-result"></div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="poll-interval">Poll Interval (seconds)</label>
+                                <input type="number" id="poll-interval" value="30" min="5" max="3600">
+                                <span class="form-hint">How often to check for new files</span>
+                            </div>
+                            
+                            <div class="credentials-section">
+                                <h3>Authentication (optional)</h3>
+                                <p class="section-description">Required for network shares that need authentication.</p>
+                                
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="incoming-username">Username</label>
+                                        <input type="text" id="incoming-username" placeholder="username">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="incoming-domain">Domain</label>
+                                        <input type="text" id="incoming-domain" placeholder="WORKGROUP">
+                                    </div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="incoming-password">Password</label>
+                                    <input type="password" id="incoming-password" placeholder="password">
+                                </div>
+                            </div>
+                        </section>
+                        
+                        <section class="settings-section">
+                            <h2>Document Storage</h2>
+                            <p class="section-description">Configure where processed documents will be stored and organized.</p>
+                            
+                            <div class="form-group">
+                                <label for="storage-path">Storage Path</label>
+                                <div class="input-with-button">
+                                    <input type="text" id="storage-path" placeholder="/mnt/documents or //server/documents">
+                                    <button type="button" class="btn btn-secondary" onclick="testConnection('storage')">Test</button>
+                                </div>
+                                <span class="form-hint">Where processed documents will be stored</span>
+                                <div id="storage-test-result" class="test-result"></div>
+                            </div>
+                            
+                            <div class="credentials-section">
+                                <h3>Authentication (optional)</h3>
+                                <p class="section-description">Required for network shares that need authentication.</p>
+                                
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="storage-username">Username</label>
+                                        <input type="text" id="storage-username" placeholder="username">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="storage-domain">Domain</label>
+                                        <input type="text" id="storage-domain" placeholder="WORKGROUP">
+                                    </div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="storage-password">Password</label>
+                                    <input type="password" id="storage-password" placeholder="password">
+                                </div>
+                            </div>
+                        </section>
+                        
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">Save Configuration</button>
+                            <span id="save-status" class="save-status"></span>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script type="module" src="./app.js"></script>
+</body>
+</html>
