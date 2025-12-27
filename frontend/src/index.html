@@ -36,6 +36,23 @@
                     </svg>
                     <span>Documents</span>
                 </li>
+                <li class="nav-item" data-page="queue">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    <span>Queue</span>
+                </li>
+                <li class="nav-item" data-page="logs">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                        <line x1="10" y1="9" x2="8" y2="9"></line>
+                    </svg>
+                    <span>Logs</span>
+                </li>
                 <li class="nav-item" data-page="settings">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <circle cx="12" cy="12" r="3"></circle>
@@ -51,6 +68,15 @@
             <div id="page-dashboard" class="page active">
                 <header class="page-header">
                     <h1>Dashboard</h1>
+                    <div class="header-actions">
+                        <button class="btn btn-secondary" onclick="triggerScan()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="23 4 23 10 17 10"></polyline>
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                            </svg>
+                            Scan Now
+                        </button>
+                    </div>
                 </header>
                 <div class="dashboard-content">
                     <div class="status-cards">
@@ -63,7 +89,19 @@
                             </div>
                             <div class="status-info">
                                 <span class="status-value" id="pending-count">-</span>
-                                <span class="status-label">Pending</span>
+                                <span class="status-label">Pending Files</span>
+                            </div>
+                        </div>
+                        <div class="status-card">
+                            <div class="status-icon awaiting">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M9 11l3 3L22 4"></path>
+                                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                                </svg>
+                            </div>
+                            <div class="status-info">
+                                <span class="status-value" id="awaiting-count">-</span>
+                                <span class="status-label">Awaiting Approval</span>
                             </div>
                         </div>
                         <div class="status-card">
@@ -74,23 +112,39 @@
                                 </svg>
                             </div>
                             <div class="status-info">
-                                <span class="status-value" id="processed-count">-</span>
-                                <span class="status-label">Processed</span>
+                                <span class="status-value" id="approved-count">-</span>
+                                <span class="status-label">Approved</span>
                             </div>
                         </div>
                         <div class="status-card">
-                            <div class="status-icon total">
+                            <div class="status-icon error">
                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
                                 </svg>
                             </div>
                             <div class="status-info">
-                                <span class="status-value" id="total-count">-</span>
-                                <span class="status-label">Total Documents</span>
+                                <span class="status-value" id="error-count">-</span>
+                                <span class="status-label">Errors</span>
                             </div>
                         </div>
                     </div>
+                    
+                    <div class="processing-mode-card">
+                        <div class="mode-info">
+                            <h3>Processing Mode</h3>
+                            <p id="mode-description">Documents require manual approval before being moved to storage.</p>
+                        </div>
+                        <div class="mode-toggle">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="auto-mode-toggle" onchange="toggleProcessingMode()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <span id="mode-label">Manual</span>
+                        </div>
+                    </div>
+                    
                     <div class="setup-prompt" id="setup-prompt">
                         <div class="setup-icon">
                             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -109,16 +163,126 @@
             <div id="page-documents" class="page">
                 <header class="page-header">
                     <h1>Documents</h1>
-                    <div class="search-box">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="11" cy="11" r="8"></circle>
-                            <path d="m21 21-4.35-4.35"></path>
-                        </svg>
-                        <input type="text" placeholder="Search documents..." id="search-input">
+                    <div class="header-actions">
+                        <div class="search-box">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <path d="m21 21-4.35-4.35"></path>
+                            </svg>
+                            <input type="text" placeholder="Search documents..." id="search-input" onkeyup="handleSearch(event)">
+                        </div>
                     </div>
                 </header>
-                <div class="documents-content">
-                    <p class="placeholder-text">No documents yet. Configure your scan folder to start importing documents.</p>
+                
+                <div class="filters-bar">
+                    <select id="filter-status" onchange="loadDocuments()">
+                        <option value="">All Status</option>
+                        <option value="awaiting_approval">Awaiting Approval</option>
+                        <option value="approved">Approved</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="error">Error</option>
+                    </select>
+                    <input type="text" id="filter-sender" placeholder="Filter by sender..." onkeyup="debounceLoadDocs()">
+                    <input type="date" id="filter-date-from" onchange="loadDocuments()" placeholder="From date">
+                    <input type="date" id="filter-date-to" onchange="loadDocuments()" placeholder="To date">
+                    <button class="btn btn-secondary btn-small" onclick="clearFilters()">Clear</button>
+                </div>
+                
+                <div class="documents-content" id="documents-list">
+                    <p class="placeholder-text">Loading documents...</p>
+                </div>
+            </div>
+            
+            <!-- Queue Page (Incoming Files) -->
+            <div id="page-queue" class="page">
+                <header class="page-header">
+                    <h1>Incoming Files</h1>
+                    <div class="header-actions">
+                        <button class="btn btn-secondary" onclick="triggerScan()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="23 4 23 10 17 10"></polyline>
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                            </svg>
+                            Scan
+                        </button>
+                        <button class="btn btn-primary" onclick="processQueue()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                            </svg>
+                            Process All
+                        </button>
+                    </div>
+                </header>
+                <div class="queue-grid" id="queue-list">
+                    <p class="placeholder-text">Loading files...</p>
+                </div>
+            </div>
+            
+            <!-- Logs Page -->
+            <div id="page-logs" class="page">
+                <header class="page-header">
+                    <h1>System Logs</h1>
+                    <div class="header-actions">
+                        <select id="log-source" onchange="loadLogs()">
+                            <option value="paperlinse">Application</option>
+                            <option value="ipex-ollama">LLM (Ollama)</option>
+                        </select>
+                        <select id="log-level" onchange="filterLogs()">
+                            <option value="all">All Levels</option>
+                            <option value="error">Errors Only</option>
+                            <option value="warning">Warnings & Errors</option>
+                            <option value="info">Info & Above</option>
+                        </select>
+                        <button class="btn btn-secondary" onclick="loadLogs()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="23 4 23 10 17 10"></polyline>
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                            </svg>
+                            Refresh
+                        </button>
+                        <label class="toggle-label">
+                            <input type="checkbox" id="log-auto-refresh" onchange="toggleLogAutoRefresh()">
+                            <span>Auto-refresh</span>
+                        </label>
+                    </div>
+                </header>
+                <div class="logs-container">
+                    <div class="logs-info">
+                        <span id="logs-count">0 entries</span>
+                        <span id="logs-file"></span>
+                    </div>
+                    <div class="logs-content" id="logs-content">
+                        <p class="placeholder-text">Loading logs...</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Document Preview Modal (Fullscreen) -->
+            <div id="preview-modal" class="modal modal-fullscreen">
+                <div class="preview-modal-content">
+                    <div class="preview-header">
+                        <h2 id="preview-title">Document Preview</h2>
+                        <button class="modal-close" onclick="closePreviewModal()">&times;</button>
+                    </div>
+                    <div class="preview-body" id="preview-body">
+                        <!-- Preview content loaded dynamically -->
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Document Detail Modal -->
+            <div id="document-modal" class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 id="modal-title">Document Details</h2>
+                        <button class="modal-close" onclick="closeModal()">&times;</button>
+                    </div>
+                    <div class="modal-body" id="modal-body">
+                        <!-- Content loaded dynamically -->
+                    </div>
+                    <div class="modal-footer" id="modal-footer">
+                        <!-- Actions loaded dynamically -->
+                    </div>
                 </div>
             </div>
             
@@ -128,9 +292,31 @@
                     <h1>Settings</h1>
                 </header>
                 <div class="settings-content">
-                    <form id="settings-form">
-                        <section class="settings-section">
+                    <!-- Incoming Scan Folder Section -->
+                    <section class="settings-section" id="incoming-section">
+                        <div class="section-header">
                             <h2>Incoming Scan Folder</h2>
+                            <button type="button" class="btn btn-secondary btn-small" id="incoming-edit-btn" onclick="toggleShareEdit('incoming')">Edit</button>
+                        </div>
+                        
+                        <!-- Summary View (shown when configured) -->
+                        <div id="incoming-summary" class="share-summary">
+                            <div class="summary-row">
+                                <span class="summary-label">Path:</span>
+                                <span class="summary-value" id="incoming-summary-path">Not configured</span>
+                            </div>
+                            <div class="summary-row">
+                                <span class="summary-label">Status:</span>
+                                <span class="summary-value" id="incoming-summary-status">-</span>
+                            </div>
+                            <div class="summary-row" id="incoming-summary-creds-row">
+                                <span class="summary-label">Credentials:</span>
+                                <span class="summary-value" id="incoming-summary-creds">None</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Edit Form (hidden by default when configured) -->
+                        <div id="incoming-form" class="share-form" style="display: none;">
                             <p class="section-description">Configure the folder where your scanner saves documents. Paperlinse will monitor this folder for new files.</p>
                             
                             <div class="form-group">
@@ -141,12 +327,6 @@
                                 </div>
                                 <span class="form-hint">Local path or network share (e.g., /mnt/scanner, //fileserver/scans)</span>
                                 <div id="incoming-test-result" class="test-result"></div>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="poll-interval">Poll Interval (seconds)</label>
-                                <input type="number" id="poll-interval" value="30" min="5" max="3600">
-                                <span class="form-hint">How often to check for new files</span>
                             </div>
                             
                             <div class="credentials-section">
@@ -169,10 +349,40 @@
                                     <input type="password" id="incoming-password" placeholder="password">
                                 </div>
                             </div>
-                        </section>
-                        
-                        <section class="settings-section">
+                            
+                            <div class="form-actions">
+                                <button type="button" class="btn btn-primary" onclick="saveShareConfig('incoming')">Save</button>
+                                <button type="button" class="btn btn-secondary" onclick="cancelShareEdit('incoming')">Cancel</button>
+                                <span id="incoming-save-status" class="save-status"></span>
+                            </div>
+                        </div>
+                    </section>
+                    
+                    <!-- Document Storage Section -->
+                    <section class="settings-section" id="storage-section">
+                        <div class="section-header">
                             <h2>Document Storage</h2>
+                            <button type="button" class="btn btn-secondary btn-small" id="storage-edit-btn" onclick="toggleShareEdit('storage')">Edit</button>
+                        </div>
+                        
+                        <!-- Summary View (shown when configured) -->
+                        <div id="storage-summary" class="share-summary">
+                            <div class="summary-row">
+                                <span class="summary-label">Path:</span>
+                                <span class="summary-value" id="storage-summary-path">Not configured</span>
+                            </div>
+                            <div class="summary-row">
+                                <span class="summary-label">Status:</span>
+                                <span class="summary-value" id="storage-summary-status">-</span>
+                            </div>
+                            <div class="summary-row" id="storage-summary-creds-row">
+                                <span class="summary-label">Credentials:</span>
+                                <span class="summary-value" id="storage-summary-creds">None</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Edit Form (hidden by default when configured) -->
+                        <div id="storage-form" class="share-form" style="display: none;">
                             <p class="section-description">Configure where processed documents will be stored and organized.</p>
                             
                             <div class="form-group">
@@ -205,16 +415,184 @@
                                     <input type="password" id="storage-password" placeholder="password">
                                 </div>
                             </div>
-                        </section>
+                            
+                            <div class="form-actions">
+                                <button type="button" class="btn btn-primary" onclick="saveShareConfig('storage')">Save</button>
+                                <button type="button" class="btn btn-secondary" onclick="cancelShareEdit('storage')">Cancel</button>
+                                <span id="storage-save-status" class="save-status"></span>
+                            </div>
+                        </div>
+                    </section>
+                    
+                    <!-- Scheduler Settings -->
+                    <section class="settings-section">
+                        <h2>Scheduler</h2>
+                        <p class="section-description">Configure how often Paperlinse checks for new documents.</p>
+                        
+                        <div class="form-group">
+                            <label for="poll-interval">Scan Interval (seconds)</label>
+                            <input type="number" id="poll-interval" value="30" min="5" max="3600">
+                            <span class="form-hint">How often to check the incoming folder for new files (5-3600 seconds)</span>
+                        </div>
                         
                         <div class="form-actions">
-                            <button type="submit" class="btn btn-primary">Save Configuration</button>
-                            <span id="save-status" class="save-status"></span>
+                            <button type="button" class="btn btn-primary" onclick="saveSchedulerConfig()">Save Interval</button>
+                            <span id="scheduler-save-status" class="save-status"></span>
                         </div>
-                    </form>
+                    </section>
+                    
+                    <!-- Processing Mode Settings -->
+                    <section class="settings-section">
+                        <h2>Processing Mode</h2>
+                        <p class="section-description">Choose how documents are handled after OCR processing.</p>
+                        
+                        <div class="mode-options">
+                            <label class="mode-option">
+                                <input type="radio" name="processing-mode" value="automatic" id="mode-automatic">
+                                <div class="mode-content">
+                                    <span class="mode-title">Automatic</span>
+                                    <span class="mode-desc">Documents are processed and moved to storage automatically.</span>
+                                </div>
+                            </label>
+                            <label class="mode-option">
+                                <input type="radio" name="processing-mode" value="manual" id="mode-manual" checked>
+                                <div class="mode-content">
+                                    <span class="mode-title">Manual</span>
+                                    <span class="mode-desc">Documents require approval before being moved to storage.</span>
+                                </div>
+                            </label>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-primary" onclick="saveProcessingMode()">Save Mode</button>
+                            <span id="mode-save-status" class="save-status"></span>
+                        </div>
+                    </section>
+                    
+                    <!-- Processing Performance Settings -->
+                    <section class="settings-section">
+                        <h2>Processing Performance</h2>
+                        <p class="section-description">Configure how many documents are processed simultaneously.</p>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="concurrent-workers">Concurrent Workers</label>
+                                <input type="number" id="concurrent-workers" value="3" min="1" max="10">
+                                <span class="form-hint">Number of documents to process at the same time (1-10)</span>
+                            </div>
+                            <div class="form-group">
+                                <label for="batch-size">Batch Size</label>
+                                <input type="number" id="batch-size" value="10" min="1" max="50">
+                                <span class="form-hint">Maximum documents to queue per processing cycle (1-50)</span>
+                            </div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-primary" onclick="saveProcessingConfig()">Save Performance Settings</button>
+                            <span id="processing-config-save-status" class="save-status"></span>
+                        </div>
+                    </section>
+                    
+                    <!-- LLM Settings -->
+                    <section class="settings-section">
+                        <div class="section-header">
+                            <h2>LLM Settings</h2>
+                            <button type="button" class="btn btn-secondary btn-small" onclick="resetLLMConfig()">Reset Prompts to Defaults</button>
+                        </div>
+                        <p class="section-description">Configure the LLM model and prompts used to analyze and classify documents.</p>
+                        
+                        <!-- Model Selection -->
+                        <div class="form-group">
+                            <label>LLM Model</label>
+                            <div id="models-status-container">
+                                <span id="models-loading" class="loading-text">Loading models...</span>
+                            </div>
+                        </div>
+                        
+                        <div id="models-list" class="models-list">
+                            <!-- Models loaded dynamically -->
+                        </div>
+                        
+                        <div id="model-pull-progress" class="model-pull-progress" style="display: none;">
+                            <div class="pull-progress-header">
+                                <span id="pull-model-name">Downloading model...</span>
+                                <span id="pull-status">Starting...</span>
+                            </div>
+                            <div class="progress-track">
+                                <div class="progress-fill" id="pull-progress-fill" style="width: 0%"></div>
+                            </div>
+                            <span id="pull-percentage">0%</span>
+                        </div>
+                        
+                        <hr class="section-divider">
+                        
+                        <h3>Prompt Configuration</h3>
+                        <p class="section-description">Use <code>{text}</code> as placeholder for the document text.</p>
+                        
+                        <div class="form-group">
+                            <label for="llm-system-prompt">System Prompt</label>
+                            <textarea id="llm-system-prompt" rows="4" placeholder="System instructions for the LLM..."></textarea>
+                            <span class="form-hint">Instructions that define the LLM's behavior and output format</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="llm-user-prompt-de">German Document Prompt</label>
+                            <textarea id="llm-user-prompt-de" rows="12" placeholder="Prompt template for German documents..."></textarea>
+                            <span class="form-hint">Template used for German documents. Use <code>{text}</code> where the OCR text should be inserted.</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="llm-user-prompt-en">English Document Prompt</label>
+                            <textarea id="llm-user-prompt-en" rows="12" placeholder="Prompt template for English documents..."></textarea>
+                            <span class="form-hint">Template used for English documents. Use <code>{text}</code> where the OCR text should be inserted.</span>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-primary" onclick="saveLLMConfig()">Save Prompts</button>
+                            <span id="llm-save-status" class="save-status"></span>
+                        </div>
+                    </section>
                 </div>
             </div>
         </main>
+    </div>
+    
+    <!-- Progress Bar (fixed at bottom) -->
+    <div id="progress-bar-container" class="progress-bar-container hidden">
+        <div class="progress-bar-content">
+            <div class="progress-info">
+                <span class="progress-status" id="progress-status">Processing...</span>
+                <span class="progress-details" id="progress-details"></span>
+            </div>
+            <div class="progress-track">
+                <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+            </div>
+            <span class="progress-percentage" id="progress-percentage">0%</span>
+        </div>
+        <div class="progress-steps" id="progress-steps" style="display: none;"></div>
+    </div>
+    
+    <!-- Notification Container -->
+    <div id="notification-container"></div>
+    
+    <!-- Rejection Reason Modal -->
+    <div id="rejection-modal" class="modal">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2>Reject Document</h2>
+                <button class="modal-close" onclick="closeRejectionModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="rejection-reason">Reason for rejection (optional)</label>
+                    <textarea id="rejection-reason" rows="3" placeholder="Enter reason..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeRejectionModal()">Cancel</button>
+                <button class="btn btn-danger" onclick="confirmRejection()">Reject</button>
+            </div>
+        </div>
     </div>
     
     <script type="module" src="./app.js"></script>

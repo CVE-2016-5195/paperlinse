@@ -23,3 +23,10 @@ Thumbs.db
 
 # Build artifacts in backend (built frontend is copied here)
 backend/frontend/
+
+# Runtime files
+.server.pid
+logs/
+
+# IPEX-LLM Ollama (large binaries)
+.ipex-ollama/

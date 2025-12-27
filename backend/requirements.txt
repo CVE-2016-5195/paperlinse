@@ -1,8 +1,29 @@
+# FastAPI and web framework
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
-pydantic==2.5.3
-pydantic-settings==2.1.0
+pydantic>=2.7.0
+pydantic-settings>=2.1.0
 python-multipart==0.0.6
 aiofiles==23.2.1
+
+# Security
 cryptography==41.0.7
+
+# Configuration
 pyyaml==6.0.1
+
+# Database
+asyncpg==0.29.0
+
+# HTTP client (for Ollama)
+httpx==0.26.0
+
+# OCR - PaddlePaddle and PaddleOCR
+# Note: paddlepaddle-gpu for GPU support
+paddlepaddle==3.0.0b1
+paddleocr==2.9.1
+
+# Image processing
+Pillow==10.2.0
+numpy==1.26.3
+pdf2image==1.17.0
