@@ -329,6 +329,62 @@ body {
     background-color: white;
 }
 
+/* Range slider styles */
+.slider-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 4px;
+}
+
+.slider {
+    -webkit-appearance: none;
+    appearance: none;
+    flex: 1;
+    height: 8px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    outline: none;
+    cursor: pointer;
+}
+
+.slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.slider::-webkit-slider-thumb:hover {
+    background: var(--accent-hover);
+}
+
+.slider::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+    transition: background 0.2s;
+}
+
+.slider::-moz-range-thumb:hover {
+    background: var(--accent-hover);
+}
+
+.slider-value {
+    min-width: 100px;
+    text-align: right;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
 .setup-prompt {
     background: var(--bg-secondary);
     border: 1px solid var(--border);
@@ -1556,6 +1612,36 @@ body {
     text-align: right;
 }
 
+.progress-cancel-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-left: 8px;
+    flex-shrink: 0;
+}
+
+.progress-cancel-btn:hover {
+    background: var(--error);
+    color: white;
+}
+
+.progress-cancel-btn:active {
+    transform: scale(0.95);
+}
+
+.progress-cancel-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
 /* Pulse animation for active processing */
 .progress-bar-container.active .progress-fill {
     animation: pulse-progress 2s ease-in-out infinite;
@@ -2106,5 +2192,137 @@ body.progress-visible .app {
     color: var(--accent);
     border-radius: 4px;
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+/* ============================================================================
+   Vision LLM Settings
+   ============================================================================ */
+
+.vision-llm-options {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+}
+
+.status-indicator {
+    font-size: 0.75rem;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.status-indicator.status-success {
+    background: rgba(34, 197, 94, 0.15);
+    color: var(--success);
+}
+
+.status-indicator.status-warning {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+}
+
+.status-indicator.status-disabled {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+}
+
+.model-download-cmd {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    border: 1px solid var(--border);
+}
+
+.model-download-cmd code {
+    flex: 1;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    word-break: break-all;
+}
+
+.model-download-cmd .btn {
+    flex-shrink: 0;
+    padding: 4px 8px;
+}
+
+/* ============================================================================
+   Vision Model Styling
+   ============================================================================ */
+
+/* Vision badge for model cards */
+.model-badge.vision {
+    background: rgba(139, 92, 246, 0.2);
+    color: #a78bfa;
+}
+
+/* Vision model card styling */
+.model-card.vision-model {
+    border-left: 3px solid #8b5cf6;
+}
+
+.model-card.vision-model.current {
+    border-left-color: #8b5cf6;
+    background: rgba(139, 92, 246, 0.08);
+}
+
+/* Model type label (Ollama / OpenVINO) */
+.model-type-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Section titles for model groups */
+.models-section-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin: 20px 0 12px 0;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.models-section-title:first-of-type {
+    margin-top: 0;
+}
+
+/* Section description for vision models */
+.models-section-desc {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin: -8px 0 12px 0;
+    line-height: 1.4;
+}
+
+/* Vision status indicator in models header */
+.vision-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(139, 92, 246, 0.1);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    color: #a78bfa;
+    margin-left: 12px;
+}
+
+.vision-status.connected {
+    color: #a78bfa;
+}
+
+.vision-status .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
 }
 

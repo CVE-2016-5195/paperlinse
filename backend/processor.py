@@ -18,6 +18,9 @@ from shares import get_effective_path
 from database import Database, DocumentModel, PageModel, DocumentStatus
 from ocr import PaddleOCREngine, OCRResult
 from llm import OllamaClient, DocumentMetadata, get_ollama_client
+from vision_llm import (
+    extract_metadata_vision, is_vision_llm_available, get_vision_llm_status
+)
 from events import (
     emit_processing_started, emit_processing_progress,
     emit_processing_completed, emit_processing_error,
@@ -31,6 +34,11 @@ logger = logging.getLogger(__name__)
 SUPPORTED_EXTENSIONS = {'.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp', '.gif'}
 
 
+class CancelledError(Exception):
+    """Raised when processing is cancelled by user."""
+    pass
+
+
 class ProcessingStep(str, Enum):
     """Processing steps for tracking progress."""
     QUEUED = "queued"
@@ -39,6 +47,7 @@ class ProcessingStep(str, Enum):
     LLM = "llm"
     SAVING = "saving"
     COMPLETED = "completed"
+    CANCELLED = "cancelled"
     ERROR = "error"
 
 
@@ -61,6 +70,7 @@ class ProcessingTracker:
     
     def __init__(self):
         self._processing: dict[str, FileProcessingStatus] = {}
+        self._cancelled: set[str] = set()  # Track cancelled file paths
         self._lock = asyncio.Lock()
     
     @classmethod
@@ -136,6 +146,47 @@ class ProcessingTracker:
         """Clear all tracking (used on startup)."""
         async with self._lock:
             self._processing.clear()
+            self._cancelled.clear()
+    
+    async def cancel_processing(self, file_path: Optional[str] = None) -> dict:
+        """
+        Cancel processing for a specific file or all files.
+        
+        Args:
+            file_path: Specific file to cancel, or None to cancel all
+        
+        Returns:
+            Dict with 'cancelled' list and 'count'
+        """
+        cancelled_files = []
+        async with self._lock:
+            if file_path:
+                # Cancel specific file
+                if file_path in self._processing:
+                    self._cancelled.add(file_path)
+                    self._processing[file_path].step_detail = "Cancelling... (will stop after current step)"
+                    cancelled_files.append(file_path)
+            else:
+                # Cancel all currently processing files
+                for fp in self._processing.keys():
+                    self._cancelled.add(fp)
+                    self._processing[fp].step_detail = "Cancelling... (will stop after current step)"
+                    cancelled_files.append(fp)
+        
+        return {'cancelled': cancelled_files, 'count': len(cancelled_files)}
+    
+    def is_cancelled(self, file_path: str) -> bool:
+        """
+        Check if a file's processing has been cancelled.
+        
+        Note: This is not async to allow quick checks in processing loop.
+        """
+        return file_path in self._cancelled
+    
+    async def clear_cancelled(self, file_path: str) -> None:
+        """Remove a file from the cancelled set after cleanup."""
+        async with self._lock:
+            self._cancelled.discard(file_path)
 
 
 # Global tracker instance
@@ -158,6 +209,62 @@ class DocumentProcessor:
         if self._llm_client is None:
             self._llm_client = await get_ollama_client()
         return self._llm_client
+    
+    def get_page_images(self, file_path: str, dpi: int = 150) -> list[str]:
+        """
+        Get image paths for each page of a document.
+        
+        For images, returns the original file path.
+        For PDFs, converts each page to a temporary JPEG file.
+        
+        Args:
+            file_path: Path to the document file
+            dpi: Resolution for PDF to image conversion
+        
+        Returns:
+            List of image file paths (may be temp files for PDFs)
+        """
+        path = Path(file_path)
+        suffix = path.suffix.lower()
+        
+        # For image files, just return the original path
+        if suffix in {'.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp', '.gif'}:
+            return [file_path]
+        
+        # For PDFs, convert each page to an image
+        if suffix == '.pdf':
+            try:
+                import pdf2image
+                
+                images = pdf2image.convert_from_path(
+                    file_path,
+                    dpi=dpi,
+                    fmt='jpeg'
+                )
+                
+                image_paths = []
+                for i, image in enumerate(images):
+                    temp_path = f"/tmp/paperlinse_page_{i}_{path.stem}.jpg"
+                    image.save(temp_path, "JPEG", quality=95)
+                    image_paths.append(temp_path)
+                
+                logger.debug(f"Converted PDF to {len(image_paths)} page images")
+                return image_paths
+                
+            except Exception as e:
+                logger.error(f"Failed to convert PDF to images: {e}")
+                return []
+        
+        return []
+    
+    def cleanup_temp_images(self, image_paths: list[str], original_path: str) -> None:
+        """Clean up temporary image files (not the original)."""
+        for img_path in image_paths:
+            if img_path != original_path and img_path.startswith("/tmp/paperlinse_"):
+                try:
+                    os.unlink(img_path)
+                except Exception:
+                    pass
     
     def compute_file_hash(self, file_path: str) -> str:
         """Compute SHA-256 hash of a file."""
@@ -240,6 +347,10 @@ class DocumentProcessor:
             
             await tracker.update_step(file_path, ProcessingStep.OCR, f"OCR complete - extracted {len(ocr_results)} page(s)", 40)
             
+            # Check for cancellation after OCR (heavy operation complete)
+            if tracker.is_cancelled(file_path):
+                raise CancelledError(f"Processing cancelled for {file_path}")
+            
             # Combine all OCR text for metadata extraction
             combined_text = "\n\n".join(r.text for r in ocr_results if r.text)
             
@@ -248,13 +359,59 @@ class DocumentProcessor:
             if combined_text:
                 detected_lang = self.ocr_engine.detect_language(combined_text)
             
-            # Step 3: Extract metadata using LLM
-            await tracker.update_step(file_path, ProcessingStep.LLM, f"Analyzing document with LLM ({detected_lang})...", 50)
-            logger.info(f"Extracting metadata for document {doc_id}")
-            llm_client = await self.get_llm_client()
-            metadata = await llm_client.extract_metadata(combined_text, detected_lang)
+            # Step 3: Extract metadata using LLM (text-based or vision-based)
+            config = AppConfig.load()
+            use_vision = config.vision_llm.enabled and is_vision_llm_available()
             
-            await tracker.update_step(file_path, ProcessingStep.LLM, "LLM analysis complete", 80)
+            # Check for cancellation before LLM (expensive operation)
+            if tracker.is_cancelled(file_path):
+                raise CancelledError(f"Processing cancelled for {file_path}")
+            
+            # Always get the text LLM client (needed for folder name generation)
+            llm_client = await self.get_llm_client()
+            
+            page_images: list[str] = []
+            metadata: Optional[DocumentMetadata] = None
+            try:
+                if use_vision:
+                    # Vision-based extraction: send images to Qwen3-VL
+                    await tracker.update_step(
+                        file_path, ProcessingStep.LLM,
+                        f"Analyzing document with Vision LLM ({detected_lang})...", 50
+                    )
+                    logger.info(f"Extracting metadata using Vision LLM for document {doc_id}")
+                    
+                    # Get page images for vision processing
+                    page_images = self.get_page_images(file_path)
+                    if not page_images:
+                        logger.warning("No page images available, falling back to text-based extraction")
+                        use_vision = False
+                    else:
+                        metadata = await extract_metadata_vision(page_images, detected_lang)
+                
+                if not use_vision:
+                    # Text-based extraction: send OCR text to Ollama
+                    await tracker.update_step(
+                        file_path, ProcessingStep.LLM,
+                        f"Analyzing document with text LLM ({detected_lang})...", 50
+                    )
+                    logger.info(f"Extracting metadata using text LLM for document {doc_id}")
+                    metadata = await llm_client.extract_metadata(combined_text, detected_lang)
+            finally:
+                # Clean up temp page images
+                if page_images:
+                    self.cleanup_temp_images(page_images, file_path)
+            
+            # Check for cancellation after LLM (the heavy operation is done)
+            if tracker.is_cancelled(file_path):
+                raise CancelledError(f"Processing cancelled for {file_path}")
+            
+            # Ensure we have metadata
+            if metadata is None:
+                raise Exception("Failed to extract metadata from document")
+            
+            extraction_method = "Vision LLM" if use_vision else "Text LLM"
+            await tracker.update_step(file_path, ProcessingStep.LLM, f"{extraction_method} analysis complete", 80)
             
             # If LLM didn't find a date, use the file modification date
             if metadata.document_date is None:
@@ -263,6 +420,10 @@ class DocumentProcessor:
             
             # Step 4: Save to database
             await tracker.update_step(file_path, ProcessingStep.SAVING, "Saving to database...", 85)
+            
+            # Final cancellation check before committing to database
+            if tracker.is_cancelled(file_path):
+                raise CancelledError(f"Processing cancelled for {file_path}")
             
             # Save pages to database
             page_count = len(ocr_results)
@@ -338,6 +499,40 @@ class DocumentProcessor:
             await emit_stats_updated()
             
             return doc_id
+            
+        except CancelledError as e:
+            logger.info(f"Processing cancelled for {file_path}")
+            
+            # Update tracker to show cancelled status
+            async with tracker._lock:
+                if file_path in tracker._processing:
+                    tracker._processing[file_path].step = ProcessingStep.CANCELLED
+                    tracker._processing[file_path].step_detail = "Cancelled by user"
+            
+            # Clean up: delete partial document record if created
+            try:
+                if doc_id:
+                    await Database.delete_document(doc_id)
+                    logger.info(f"Deleted partial document record {doc_id}")
+            except Exception:
+                pass
+            
+            # Reset queue status to allow reprocessing later
+            await Database.update_queue_status(
+                file_path, "pending", error_message="Cancelled by user"
+            )
+            
+            # Clear cancellation flag
+            await tracker.clear_cancelled(file_path)
+            
+            # Emit events
+            await emit_queue_updated()
+            
+            # Brief delay so UI can see cancelled state
+            await asyncio.sleep(1)
+            await tracker.complete_processing(file_path)
+            
+            return None
             
         except Exception as e:
             logger.error(f"Error processing {file_path}: {e}")

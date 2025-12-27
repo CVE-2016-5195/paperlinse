@@ -18,6 +18,9 @@ asyncpg==0.29.0
 # HTTP client (for Ollama)
 httpx==0.26.0
 
+# HuggingFace Hub (for vision model downloads)
+huggingface_hub>=0.20.0
+
 # OCR - PaddlePaddle and PaddleOCR
 # Note: paddlepaddle-gpu for GPU support
 paddlepaddle==3.0.0b1

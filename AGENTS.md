@@ -13,10 +13,12 @@ paperlinse/
 │   ├── database.py       # PostgreSQL database integration
 │   ├── ocr.py            # PaddleOCR document processing
 │   ├── llm.py            # Ollama LLM integration
+│   ├── vision_llm.py     # Vision LLM (Qwen3-VL) integration
 │   ├── processor.py      # Document processing pipeline
 │   ├── config.py         # Configuration with Fernet encryption
 │   ├── shares.py         # SMB/CIFS share mounting utilities
-│   └── requirements.txt  # Python dependencies (FastAPI, Pydantic, etc.)
+│   ├── requirements.txt  # Python dependencies (FastAPI, Pydantic, etc.)
+│   └── requirements-vision.txt  # Optional Vision LLM dependencies
 ├── frontend/
 │   ├── src/
 │   │   ├── index.html    # SPA entry point
@@ -370,3 +372,78 @@ The following are set automatically when using Intel GPU mode:
 
 ### Logs
 IPEX-LLM Ollama logs are written to `logs/ipex-ollama.log`
+
+## Vision LLM Support (Experimental)
+
+Paperlinse supports an experimental Vision LLM mode using OpenVINO and Qwen3-VL. 
+This allows direct image-to-metadata extraction, bypassing the OCR + text LLM pipeline.
+
+### How It Works
+Instead of:
+1. Image → PaddleOCR → Text → Ollama LLM → Metadata
+
+Vision LLM mode uses:
+1. Image(s) → Qwen3-VL (OpenVINO) → Metadata
+
+This can provide better results for:
+- Documents with complex layouts
+- Multi-page documents (all pages sent as images)
+- Documents where OCR struggles (handwriting, poor quality scans)
+
+### Installation
+
+1. Install Vision LLM dependencies:
+```bash
+pip install -r backend/requirements-vision.txt
+```
+
+2. Download a pre-converted model:
+```bash
+# Recommended: Qwen3-VL 2B INT4 (optimized for Intel)
+huggingface-cli download helenai/Qwen3-VL-2B-Instruct-int4 --local-dir models/Qwen3-VL-2B-Instruct-int4
+```
+
+3. Enable in the web UI:
+   - Go to Settings → Vision LLM
+   - Check "Enable Vision LLM"
+   - Set the model path to your downloaded model
+   - Select device (CPU, GPU, or AUTO)
+
+### Available Vision Models
+| Model | Size | Description |
+|-------|------|-------------|
+| `helenai/Qwen3-VL-2B-Instruct-int4` | ~2GB | INT4 quantized, optimized for Intel |
+
+### Requirements
+- OpenVINO 2025.3+
+- transformers 4.57.1
+- Custom optimum-intel branches with Qwen3-VL support (installed from requirements-vision.txt)
+- ~4GB RAM minimum (2B model)
+
+### Fallback Behavior
+When Vision LLM is enabled:
+- If the vision model is available, it will be used for metadata extraction
+- OCR still runs (for full-text search and text storage)
+- If vision extraction fails, it automatically falls back to text-based extraction
+
+### Device Selection
+- **CPU**: Works on any system, slower but compatible
+- **GPU**: Requires Intel GPU with OpenVINO support (recommended for Intel devices)
+- **AUTO**: Let OpenVINO select the best available device
+
+### Troubleshooting
+
+**Model not loading:**
+- Ensure the model path is correct (should contain `openvino_model.xml`)
+- Check you have sufficient RAM (~4GB for 2B model)
+- Try CPU device first, then GPU
+
+**Slow inference:**
+- First run compiles the model (may take 1-2 minutes)
+- Subsequent runs should be faster
+- Use GPU device on Intel systems for better performance
+
+**Import errors:**
+- Ensure you installed from the custom optimum-intel branch
+- Run: `pip install -r backend/requirements-vision.txt`
+

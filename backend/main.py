@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import os
 
-from config import AppConfig, ShareCredentials, IncomingShareConfig, StorageConfig, LLMConfig, ProcessingConfig, DEFAULT_SYSTEM_PROMPT, DEFAULT_USER_PROMPT_DE, DEFAULT_USER_PROMPT_EN
+from config import AppConfig, ShareCredentials, IncomingShareConfig, StorageConfig, LLMConfig, ProcessingConfig, VisionLLMConfig, DEFAULT_SYSTEM_PROMPT, DEFAULT_USER_PROMPT_DE, DEFAULT_USER_PROMPT_EN, VISION_LLM_MODELS
 from shares import get_effective_path, is_network_path, get_mount_point, is_mounted
 from database import Database, DocumentModel, DocumentStatus, PageModel
 from processor import get_processor, DocumentProcessor, get_processing_tracker
@@ -297,6 +297,41 @@ class ProcessingConfigRequest(BaseModel):
     batch_size: int
 
 
+class VisionLLMModelInfo(BaseModel):
+    """Information about a Vision LLM model."""
+    id: str
+    name: str
+    size_gb: float
+    description: str
+    installed: bool = False
+    current: bool = False
+
+
+class VisionLLMConfigResponse(BaseModel):
+    """Response with Vision LLM configuration."""
+    enabled: bool
+    model_path: str
+    device: str
+    max_pixels: int = 512 * 28 * 28  # Default ~401k pixels
+    min_pixels: int = 4 * 28 * 28    # Default ~3.1k pixels
+    prompt_de: str = ""  # Vision LLM German prompt
+    prompt_en: str = ""  # Vision LLM English prompt
+    available: bool = False
+    available_models: list[VisionLLMModelInfo] = []
+    status_message: str = ""
+
+
+class VisionLLMConfigRequest(BaseModel):
+    """Request to update Vision LLM configuration."""
+    enabled: Optional[bool] = None
+    model_path: Optional[str] = None
+    device: Optional[str] = None
+    max_pixels: Optional[int] = None
+    min_pixels: Optional[int] = None
+    prompt_de: Optional[str] = None  # Vision LLM German prompt
+    prompt_en: Optional[str] = None  # Vision LLM English prompt
+
+
 class ProcessingProgressResponse(BaseModel):
     """Response with current processing progress."""
     is_active: bool
@@ -311,12 +346,26 @@ class ProcessingProgressResponse(BaseModel):
     llm_model: str = ""  # Currently configured LLM model
 
 
+class CancelProcessingRequest(BaseModel):
+    """Request to cancel processing."""
+    file_path: Optional[str] = None  # Specific file to cancel, or None for all
+
+
+class CancelProcessingResponse(BaseModel):
+    """Response for cancel processing request."""
+    success: bool
+    message: str
+    cancelled_count: int = 0
+    cancelled_files: list[str] = []
+
+
 class ModelInfo(BaseModel):
     """Information about an LLM model."""
     id: str
     name: str
     size_mb: int
     description: str
+    model_type: str = "text"  # "text" for Ollama models, "vision" for OpenVINO vision models
     installed: bool = False
     current: bool = False
     pulling: bool = False
@@ -542,6 +591,199 @@ async def reset_llm_config() -> dict:
 
 
 # ============================================================================
+# Vision LLM Configuration API Routes
+# ============================================================================
+
+@app.get("/api/config/vision-llm")
+async def get_vision_llm_config() -> VisionLLMConfigResponse:
+    """Get Vision LLM configuration and status."""
+    from vision_llm import is_vision_llm_available, get_vision_llm_status
+    
+    config = AppConfig.load()
+    
+    # Check if vision LLM is available
+    available = False
+    status_message = ""
+    try:
+        available = is_vision_llm_available()
+        status = get_vision_llm_status()
+        # Get error message from status (key is "error", not "message")
+        status_message = status.get("error", "") or ""
+    except Exception as e:
+        status_message = f"Error checking Vision LLM status: {e}"
+    
+    # Build list of available models with installation status
+    available_models = []
+    for model_id, display_name, size_gb, description in VISION_LLM_MODELS:
+        # Check if this model is installed by looking for model files
+        model_dir_name = model_id.split("/")[-1]  # e.g., "Qwen3-VL-2B-Instruct-int4"
+        model_path = Path("models") / model_dir_name
+        is_installed = model_path.exists() and (
+            (model_path / "openvino_model.xml").exists() or 
+            (model_path / "openvino_language_model.xml").exists()
+        )
+        
+        # Check if this is the currently active model
+        is_current = (
+            config.vision_llm.enabled and 
+            is_installed and 
+            model_dir_name.lower() in config.vision_llm.model_path.lower()
+        )
+        
+        available_models.append(VisionLLMModelInfo(
+            id=model_id,
+            name=display_name,
+            size_gb=size_gb,
+            description=description,
+            installed=is_installed,
+            current=is_current
+        ))
+    
+    # Import default prompts for fallback
+    from config import DEFAULT_VISION_PROMPT_DE, DEFAULT_VISION_PROMPT_EN
+    
+    return VisionLLMConfigResponse(
+        enabled=config.vision_llm.enabled,
+        model_path=config.vision_llm.model_path,
+        device=config.vision_llm.device,
+        max_pixels=getattr(config.vision_llm, 'max_pixels', 512 * 28 * 28),
+        min_pixels=getattr(config.vision_llm, 'min_pixels', 4 * 28 * 28),
+        prompt_de=getattr(config.vision_llm, 'prompt_de', DEFAULT_VISION_PROMPT_DE),
+        prompt_en=getattr(config.vision_llm, 'prompt_en', DEFAULT_VISION_PROMPT_EN),
+        available=available,
+        available_models=available_models,
+        status_message=status_message
+    )
+
+
+@app.post("/api/config/vision-llm")
+async def save_vision_llm_config(request: VisionLLMConfigRequest) -> dict:
+    """Save Vision LLM configuration."""
+    from vision_llm import VisionLLMClient, get_vision_llm_client
+    from config import DEFAULT_VISION_PROMPT_DE, DEFAULT_VISION_PROMPT_EN
+    
+    config = AppConfig.load()
+    
+    # Update only provided fields
+    new_enabled = request.enabled if request.enabled is not None else config.vision_llm.enabled
+    new_model_path = request.model_path if request.model_path is not None else config.vision_llm.model_path
+    new_device = request.device if request.device is not None else config.vision_llm.device
+    new_max_pixels = request.max_pixels if request.max_pixels is not None else getattr(config.vision_llm, 'max_pixels', 512 * 28 * 28)
+    new_min_pixels = request.min_pixels if request.min_pixels is not None else getattr(config.vision_llm, 'min_pixels', 4 * 28 * 28)
+    new_prompt_de = request.prompt_de if request.prompt_de is not None else getattr(config.vision_llm, 'prompt_de', DEFAULT_VISION_PROMPT_DE)
+    new_prompt_en = request.prompt_en if request.prompt_en is not None else getattr(config.vision_llm, 'prompt_en', DEFAULT_VISION_PROMPT_EN)
+    
+    # Validate device
+    valid_devices = ["CPU", "GPU", "AUTO"]
+    if new_device.upper() not in valid_devices:
+        raise HTTPException(status_code=400, detail=f"Invalid device: {new_device}. Must be one of: {valid_devices}")
+    
+    # Validate pixel limits
+    if new_max_pixels < new_min_pixels:
+        raise HTTPException(status_code=400, detail="max_pixels must be greater than or equal to min_pixels")
+    if new_max_pixels < 28 * 28:
+        raise HTTPException(status_code=400, detail="max_pixels must be at least 784 (28x28)")
+    
+    # Check if model needs to be reloaded (device or model_path changed)
+    old_device = config.vision_llm.device
+    old_model_path = config.vision_llm.model_path
+    needs_reload = (new_device.upper() != old_device) or (new_model_path != old_model_path)
+    
+    config.vision_llm = VisionLLMConfig(
+        enabled=new_enabled,
+        model_path=new_model_path,
+        device=new_device.upper(),
+        max_pixels=new_max_pixels,
+        min_pixels=new_min_pixels,
+        prompt_de=new_prompt_de,
+        prompt_en=new_prompt_en
+    )
+    config.save()
+    
+    # Reset the Vision LLM singleton if device or model changed so it reloads with new settings
+    if needs_reload and new_enabled:
+        logger.info(f"Vision LLM config changed (device: {old_device} -> {new_device.upper()}, path: {old_model_path} -> {new_model_path}), resetting model...")
+        VisionLLMClient.reset_instance()
+        # Also reset the module-level global
+        import vision_llm
+        vision_llm._vision_client = None
+    
+    return {"status": "ok", "message": "Vision LLM configuration saved successfully"}
+
+
+@app.post("/api/config/vision-llm/reset-prompts")
+async def reset_vision_llm_prompts() -> dict:
+    """Reset Vision LLM prompts to defaults (keeps other settings)."""
+    from config import DEFAULT_VISION_PROMPT_DE, DEFAULT_VISION_PROMPT_EN
+    
+    config = AppConfig.load()
+    config.vision_llm.prompt_de = DEFAULT_VISION_PROMPT_DE
+    config.vision_llm.prompt_en = DEFAULT_VISION_PROMPT_EN
+    config.save()
+    return {"status": "ok", "message": "Vision LLM prompts reset to defaults"}
+
+
+@app.get("/api/vision-llm/status")
+async def get_vision_llm_status_endpoint() -> dict:
+    """Get detailed Vision LLM status."""
+    from vision_llm import get_vision_llm_status, is_vision_llm_available
+    
+    try:
+        status = get_vision_llm_status()
+        available = is_vision_llm_available()
+        
+        return {
+            "available": available,
+            "status": status.get("status", "unknown"),
+            "message": status.get("message", ""),
+            "model_loaded": status.get("model_loaded", False),
+            "model_path": status.get("model_path", ""),
+            "device": status.get("device", "")
+        }
+    except Exception as e:
+        logger.error(f"Error getting Vision LLM status: {e}")
+        return {
+            "available": False,
+            "status": "error",
+            "message": str(e),
+            "model_loaded": False
+        }
+
+
+@app.get("/api/vision-llm/models")
+async def list_vision_llm_models() -> dict:
+    """List available Vision LLM models."""
+    config = AppConfig.load()
+    
+    models = []
+    for model_id, display_name, size_gb, description in VISION_LLM_MODELS:
+        # Check if this model is installed
+        is_installed = False
+        is_current = False
+        if config.vision_llm.model_path:
+            model_path = Path(config.vision_llm.model_path)
+            if model_path.exists() and model_id.lower() in str(model_path).lower():
+                is_installed = True
+                is_current = True
+        
+        models.append({
+            "id": model_id,
+            "name": display_name,
+            "size_gb": size_gb,
+            "description": description,
+            "installed": is_installed,
+            "current": is_current,
+            "download_command": f"huggingface-cli download {model_id} --local-dir models/{model_id.split('/')[-1]}"
+        })
+    
+    return {
+        "models": models,
+        "current_model_path": config.vision_llm.model_path,
+        "enabled": config.vision_llm.enabled
+    }
+
+
+# ============================================================================
 # Model Management API Routes
 # ============================================================================
 
@@ -551,9 +793,10 @@ async def list_models() -> ModelsListResponse:
     from llm import get_current_model, list_available_models, get_model_pull_status
     from config import RECOMMENDED_MODELS
     
+    config = AppConfig.load()
     current_model = get_current_model()
     
-    # Get installed models from Ollama
+    # Get installed models from Ollama (for text models)
     installed_models = []
     ollama_available = True
     try:
@@ -568,25 +811,55 @@ async def list_models() -> ModelsListResponse:
         ollama_available = False
     
     models = []
-    for model_id, display_name, size_mb, description in RECOMMENDED_MODELS:
-        # Check if installed (exact match or base name match with version)
-        is_installed = model_id in installed_names or any(
-            m["name"].startswith(model_id.split(":")[0] + ":") and model_id in m["name"]
-            for m in installed_models
-        )
+    for model_tuple in RECOMMENDED_MODELS:
+        # Handle both 4-tuple (legacy) and 5-tuple (with model_type) formats
+        if len(model_tuple) >= 5:
+            model_id, display_name, size_mb, description, model_type = model_tuple[:5]
+        else:
+            model_id, display_name, size_mb, description = model_tuple[:4]
+            model_type = "text"
         
-        # Check if this model is currently being pulled
-        pull_status = get_model_pull_status(model_id)
-        is_pulling = pull_status is not None and pull_status.get("status") not in ("success", "error", None)
-        pull_progress = pull_status.get("percent", 0) if is_pulling else 0
+        is_installed = False
+        is_current = False
+        is_pulling = False
+        pull_progress = 0
+        
+        if model_type == "vision":
+            # Vision models: check if downloaded via HuggingFace
+            # Model is installed if the model_path exists and contains OpenVINO model files
+            model_dir_name = model_id.split("/")[-1]  # e.g., "Qwen3-VL-2B-Instruct-int4"
+            model_path = Path("models") / model_dir_name
+            # Check for any openvino model file (language model is the main one)
+            is_installed = model_path.exists() and (
+                (model_path / "openvino_model.xml").exists() or 
+                (model_path / "openvino_language_model.xml").exists()
+            )
+            
+            # Vision model is "current" if vision_llm is enabled and using this model
+            if config.vision_llm.enabled and model_dir_name.lower() in config.vision_llm.model_path.lower():
+                is_current = True
+        else:
+            # Text models: check Ollama
+            is_installed = model_id in installed_names or any(
+                m["name"].startswith(model_id.split(":")[0] + ":") and model_id in m["name"]
+                for m in installed_models
+            )
+            # Text model is "current" only if vision LLM is NOT enabled
+            is_current = (model_id == current_model) and not config.vision_llm.enabled
+            
+            # Check if this model is currently being pulled
+            pull_status = get_model_pull_status(model_id)
+            is_pulling = pull_status is not None and pull_status.get("status") not in ("success", "error", None)
+            pull_progress = pull_status.get("percent", 0) if is_pulling else 0
         
         models.append(ModelInfo(
             id=model_id,
             name=display_name,
             size_mb=size_mb,
             description=description,
+            model_type=model_type,
             installed=is_installed,
-            current=(model_id == current_model),
+            current=is_current,
             pulling=is_pulling,
             pull_progress=pull_progress
         ))
@@ -601,40 +874,136 @@ async def list_models() -> ModelsListResponse:
 @app.post("/api/models/{model_id:path}/pull")
 async def pull_model_endpoint(model_id: str):
     """
-    Pull/download a model from Ollama registry.
+    Pull/download a model.
+    For text models: uses Ollama registry.
+    For vision models: uses HuggingFace CLI.
     Returns a Server-Sent Events stream with progress updates.
     """
     from fastapi.responses import StreamingResponse
     from llm import pull_model, get_model_pull_status
+    from config import RECOMMENDED_MODELS
     import json
+    import asyncio
+    import subprocess
     
-    # Check if already pulling
-    existing_status = get_model_pull_status(model_id)
-    if existing_status and existing_status.get("status") not in ("success", "error", None):
-        raise HTTPException(status_code=409, detail=f"Model {model_id} is already being downloaded")
+    # Determine if this is a vision model
+    model_type = "text"
+    for model_tuple in RECOMMENDED_MODELS:
+        if model_tuple[0] == model_id:
+            if len(model_tuple) >= 5:
+                model_type = model_tuple[4]
+            break
     
-    async def generate():
-        try:
-            async for progress in pull_model(model_id):
-                # Format as SSE
-                data = json.dumps(progress)
-                yield f"data: {data}\n\n"
+    if model_type == "vision":
+        # Vision model: download via HuggingFace CLI
+        async def generate_hf():
+            try:
+                model_dir_name = model_id.split("/")[-1]
+                local_dir = Path("models") / model_dir_name
+                local_dir.parent.mkdir(parents=True, exist_ok=True)
                 
-                if progress.get("status") in ("success", "error"):
-                    break
-        except Exception as e:
-            error_data = json.dumps({"status": "error", "error": str(e)})
-            yield f"data: {error_data}\n\n"
-    
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
-        }
-    )
+                logger.info(f"Starting vision model download: {model_id} -> {local_dir}")
+                yield f"data: {json.dumps({'status': 'downloading', 'message': f'Starting download of {model_id}...', 'percent': 0})}\n\n"
+                
+                # Run hf download (newer huggingface_hub CLI)
+                process = await asyncio.create_subprocess_exec(
+                    "hf", "download", model_id,
+                    "--local-dir", str(local_dir),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT
+                )
+                
+                # Stream output
+                output_lines = []
+                while True:
+                    line = await process.stdout.readline()
+                    if not line:
+                        break
+                    line_text = line.decode().strip()
+                    output_lines.append(line_text)
+                    logger.debug(f"HF download: {line_text}")
+                    
+                    # Try to parse progress from HuggingFace output
+                    # HF CLI shows progress like "Downloading: 45%|████..."
+                    percent = 50  # Default to 50% during download
+                    if "%" in line_text:
+                        try:
+                            # Extract percentage from output
+                            import re
+                            match = re.search(r'(\d+)%', line_text)
+                            if match:
+                                percent = int(match.group(1))
+                        except:
+                            pass
+                    
+                    yield f"data: {json.dumps({'status': 'downloading', 'message': line_text, 'percent': percent})}\n\n"
+                
+                await process.wait()
+                logger.info(f"HF download process exited with code: {process.returncode}")
+                
+                if process.returncode == 0:
+                    # Verify download - check for OpenVINO model files
+                    has_openvino = (
+                        (local_dir / "openvino_model.xml").exists() or 
+                        (local_dir / "openvino_language_model.xml").exists()
+                    )
+                    if has_openvino:
+                        logger.info(f"Vision model {model_id} downloaded and verified successfully")
+                        yield f"data: {json.dumps({'status': 'success', 'message': f'Vision model {model_id} downloaded successfully', 'percent': 100})}\n\n"
+                    else:
+                        logger.warning(f"Vision model {model_id} downloaded but openvino_model.xml not found")
+                        yield f"data: {json.dumps({'status': 'success', 'message': f'Model downloaded to {local_dir}. Note: May need conversion to OpenVINO format.', 'percent': 100})}\n\n"
+                else:
+                    error_msg = output_lines[-1] if output_lines else "Download failed"
+                    logger.error(f"Vision model download failed: {error_msg}")
+                    yield f"data: {json.dumps({'status': 'error', 'error': error_msg})}\n\n"
+                    
+            except FileNotFoundError:
+                error_msg = 'hf CLI not found. Install with: pip install huggingface_hub'
+                logger.error(f"Vision model download error: {error_msg}")
+                yield f"data: {json.dumps({'status': 'error', 'error': error_msg})}\n\n"
+            except Exception as e:
+                logger.error(f"Vision model download exception: {e}", exc_info=True)
+                yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
+        
+        return StreamingResponse(
+            generate_hf(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+    else:
+        # Text model: use Ollama
+        # Check if already pulling
+        existing_status = get_model_pull_status(model_id)
+        if existing_status and existing_status.get("status") not in ("success", "error", None):
+            raise HTTPException(status_code=409, detail=f"Model {model_id} is already being downloaded")
+        
+        async def generate():
+            try:
+                async for progress in pull_model(model_id):
+                    # Format as SSE
+                    data = json.dumps(progress)
+                    yield f"data: {data}\n\n"
+                    
+                    if progress.get("status") in ("success", "error"):
+                        break
+            except Exception as e:
+                error_data = json.dumps({"status": "error", "error": str(e)})
+                yield f"data: {error_data}\n\n"
+        
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
 
 
 @app.get("/api/models/{model_id:path}/pull/status")
@@ -650,64 +1019,166 @@ async def get_pull_status(model_id: str) -> dict:
 
 @app.delete("/api/models/{model_id:path}")
 async def delete_model_endpoint(model_id: str) -> dict:
-    """Delete a model from Ollama."""
+    """Delete a model (Ollama for text, filesystem for vision)."""
     from llm import delete_model, get_current_model
+    from config import RECOMMENDED_MODELS
+    import shutil
     
-    current = get_current_model()
-    if model_id == current:
-        raise HTTPException(
-            status_code=400, 
-            detail="Cannot delete the currently active model. Switch to another model first."
-        )
+    # Determine if this is a vision model
+    model_type = "text"
+    for model_tuple in RECOMMENDED_MODELS:
+        if model_tuple[0] == model_id:
+            if len(model_tuple) >= 5:
+                model_type = model_tuple[4]
+            break
     
-    success = await delete_model(model_id)
-    if success:
-        return {"status": "ok", "message": f"Model {model_id} deleted successfully"}
+    config = AppConfig.load()
+    
+    if model_type == "vision":
+        # Vision model: check if it's currently active
+        model_dir_name = model_id.split("/")[-1]
+        if config.vision_llm.enabled and model_dir_name.lower() in config.vision_llm.model_path.lower():
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete the currently active vision model. Switch to another model first."
+            )
+        
+        # Delete the model directory
+        model_path = Path("models") / model_dir_name
+        if model_path.exists():
+            try:
+                shutil.rmtree(model_path)
+                return {"status": "ok", "message": f"Vision model {model_id} deleted successfully"}
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to delete vision model: {str(e)}")
+        else:
+            raise HTTPException(status_code=404, detail=f"Vision model {model_id} not found")
     else:
-        raise HTTPException(status_code=500, detail=f"Failed to delete model {model_id}")
+        # Text model: use Ollama
+        current = get_current_model()
+        if model_id == current:
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot delete the currently active model. Switch to another model first."
+            )
+        
+        success = await delete_model(model_id)
+        if success:
+            return {"status": "ok", "message": f"Model {model_id} deleted successfully"}
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to delete model {model_id}")
 
 
 @app.post("/api/models/{model_id:path}/switch")
 async def switch_model(model_id: str, request: Optional[ModelSwitchRequest] = None) -> dict:
     """
     Switch to a different LLM model.
+    For text models: switches Ollama model.
+    For vision models: enables vision LLM mode and sets model path.
     Optionally downloads the model if not installed.
     """
     from llm import (
         set_current_model, is_model_available, get_current_model,
         pull_model, get_model_pull_status
     )
+    from config import RECOMMENDED_MODELS, VisionLLMConfig
     
     if request is None:
         request = ModelSwitchRequest()
     
-    # Check if model is installed
-    is_available = await is_model_available(model_id)
+    # Determine if this is a vision model
+    model_type = "text"
+    for model_tuple in RECOMMENDED_MODELS:
+        if model_tuple[0] == model_id:
+            if len(model_tuple) >= 5:
+                model_type = model_tuple[4]
+            break
     
-    if not is_available:
-        if request.download_if_missing:
-            # Return response indicating download is needed
-            return {
-                "status": "download_required",
-                "message": f"Model {model_id} is not installed. Use /api/models/{model_id}/pull to download it.",
-                "model": model_id
-            }
-        else:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Model {model_id} is not installed. Set download_if_missing=true to download."
+    config = AppConfig.load()
+    
+    if model_type == "vision":
+        # Vision model: update vision_llm config
+        model_dir_name = model_id.split("/")[-1]  # e.g., "Qwen3-VL-2B-Instruct-int4"
+        model_path = Path("models") / model_dir_name
+        
+        # Check if vision model is installed (check for either openvino file naming convention)
+        is_installed = model_path.exists() and (
+            (model_path / "openvino_model.xml").exists() or 
+            (model_path / "openvino_language_model.xml").exists()
+        )
+        
+        if not is_installed:
+            if request.download_if_missing:
+                return {
+                    "status": "download_required",
+                    "message": f"Vision model {model_id} is not installed. Use /api/models/{model_id}/pull to download it.",
+                    "model": model_id,
+                    "model_type": "vision"
+                }
+            else:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Vision model {model_id} is not installed."
+                )
+        
+        # Enable vision LLM and set model path
+        old_enabled = config.vision_llm.enabled
+        old_path = config.vision_llm.model_path
+        
+        config.vision_llm = VisionLLMConfig(
+            enabled=True,
+            model_path=str(model_path),
+            device=config.vision_llm.device
+        )
+        config.save()
+        
+        return {
+            "status": "ok",
+            "message": f"Switched to vision model {model_id}",
+            "model": model_id,
+            "model_type": "vision",
+            "vision_llm_enabled": True,
+            "model_path": str(model_path)
+        }
+    else:
+        # Text model: check if installed in Ollama
+        is_available = await is_model_available(model_id)
+        
+        if not is_available:
+            if request.download_if_missing:
+                return {
+                    "status": "download_required",
+                    "message": f"Model {model_id} is not installed. Use /api/models/{model_id}/pull to download it.",
+                    "model": model_id,
+                    "model_type": "text"
+                }
+            else:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Model {model_id} is not installed. Set download_if_missing=true to download."
+                )
+        
+        # Switch to the text model and disable vision LLM
+        old_model = get_current_model()
+        await set_current_model(model_id)
+        
+        # Disable vision LLM when switching to a text model
+        if config.vision_llm.enabled:
+            config.vision_llm = VisionLLMConfig(
+                enabled=False,
+                model_path=config.vision_llm.model_path,
+                device=config.vision_llm.device
             )
-    
-    # Switch to the model
-    old_model = get_current_model()
-    await set_current_model(model_id)
-    
-    return {
-        "status": "ok",
-        "message": f"Switched from {old_model} to {model_id}",
-        "old_model": old_model,
-        "new_model": model_id
-    }
+            config.save()
+        
+        return {
+            "status": "ok",
+            "message": f"Switched from {old_model} to {model_id}",
+            "old_model": old_model,
+            "new_model": model_id,
+            "model_type": "text",
+            "vision_llm_enabled": False
+        }
 
 
 # ============================================================================
@@ -783,10 +1254,33 @@ async def save_processing_config(request: ProcessingConfigRequest) -> dict:
 async def get_processing_progress() -> ProcessingProgressResponse:
     """Get current processing progress for the progress bar."""
     from llm import get_current_model
+    from vision_llm import is_vision_llm_available
     
     config = AppConfig.load()
     tracker = get_processing_tracker()
-    llm_model = get_current_model()
+    
+    # Determine which model to show in progress bar
+    # If Vision LLM is enabled and available, show the vision model name
+    use_vision = config.vision_llm.enabled and is_vision_llm_available()
+    if use_vision:
+        # Extract model name from path (e.g., "models/Qwen2.5-VL-3B-Instruct-openvino-int4" -> "Qwen2.5-VL-3B")
+        model_path = config.vision_llm.model_path
+        model_name = model_path.split("/")[-1] if "/" in model_path else model_path
+        # Simplify name for display
+        if "Qwen" in model_name:
+            # Extract Qwen version (e.g., "Qwen2.5-VL-3B-Instruct-openvino-int4" -> "Qwen2.5-VL-3B")
+            parts = model_name.split("-")
+            display_parts = []
+            for part in parts:
+                if part.lower() in ("instruct", "openvino", "int4", "int8", "fp16"):
+                    break
+                display_parts.append(part)
+            llm_model = "-".join(display_parts) if display_parts else model_name
+        else:
+            llm_model = model_name
+        llm_model = f"{llm_model} (Vision)"
+    else:
+        llm_model = get_current_model()
     
     if not config.incoming_share.path:
         return ProcessingProgressResponse(
@@ -877,6 +1371,47 @@ async def get_processing_progress() -> ProcessingProgressResponse:
             current_files=[],
             processing_details=[],
             llm_model=llm_model
+        )
+
+
+@app.post("/api/processing/cancel")
+async def cancel_processing(request: CancelProcessingRequest) -> CancelProcessingResponse:
+    """
+    Cancel processing for a specific file or all currently processing files.
+    
+    If file_path is provided, cancels only that file.
+    If file_path is None, cancels all currently processing files.
+    """
+    tracker = get_processing_tracker()
+    
+    try:
+        result = await tracker.cancel_processing(request.file_path)
+        
+        if result['count'] == 0:
+            return CancelProcessingResponse(
+                success=True,
+                message="No files were being processed",
+                cancelled_count=0,
+                cancelled_files=[]
+            )
+        
+        file_names = [Path(fp).name for fp in result['cancelled']]
+        message = f"Cancelled processing for {result['count']} file(s): {', '.join(file_names)}"
+        
+        return CancelProcessingResponse(
+            success=True,
+            message=message,
+            cancelled_count=result['count'],
+            cancelled_files=result['cancelled']
+        )
+        
+    except Exception as e:
+        logger.error(f"Error cancelling processing: {e}")
+        return CancelProcessingResponse(
+            success=False,
+            message=f"Failed to cancel processing: {str(e)}",
+            cancelled_count=0,
+            cancelled_files=[]
         )
 
 
@@ -1890,4 +2425,7 @@ if __name__ == "__main__":
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Reduce uvicorn access log noise - only show errors
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    
+    uvicorn.run(app, host="0.0.0.0", port=8000, access_log=False)

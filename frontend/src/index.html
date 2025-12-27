@@ -552,6 +552,70 @@
                             <span id="llm-save-status" class="save-status"></span>
                         </div>
                     </section>
+                    
+                    <!-- Vision LLM Settings -->
+                    <section class="settings-section">
+                        <div class="section-header">
+                            <h2>Vision LLM Settings</h2>
+                            <span id="vision-llm-status" class="status-indicator"></span>
+                        </div>
+                        <p class="section-description">
+                            Vision models can extract metadata directly from document images. 
+                            Select a vision model from the LLM Models list above to enable this feature.
+                            When a vision model is active, these settings control how it processes documents.
+                        </p>
+                        
+                        <div id="vision-llm-options" class="vision-llm-options">
+                            <div class="form-group">
+                                <label for="vision-llm-device">Inference Device</label>
+                                <select id="vision-llm-device">
+                                    <option value="CPU">CPU</option>
+                                    <option value="GPU">GPU (Intel)</option>
+                                    <option value="AUTO">Auto</option>
+                                </select>
+                                <span class="form-hint">Hardware to use for vision model inference (GPU recommended for Intel devices)</span>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="vision-llm-max-pixels">Image Size Limit</label>
+                                <div class="slider-container">
+                                    <input type="range" id="vision-llm-max-pixels" 
+                                           min="200704" max="2007040" step="100352" 
+                                           value="401408" class="slider">
+                                    <span id="vision-llm-max-pixels-display" class="slider-value">~400k px</span>
+                                </div>
+                                <span class="form-hint">
+                                    Maximum image pixels before resizing. Lower = faster processing, Higher = better detail.
+                                    <br>Recommended: ~400k for speed on iGPU, ~1M for quality.
+                                </span>
+                            </div>
+                            
+                            <hr class="section-divider">
+                            
+                            <div class="section-header">
+                                <h3>Vision LLM Prompts</h3>
+                                <button type="button" class="btn btn-secondary btn-small" onclick="resetVisionLLMPrompts()">Reset to Defaults</button>
+                            </div>
+                            <p class="section-description">Configure the prompts used by the Vision LLM to extract document metadata from images.</p>
+                            
+                            <div class="form-group">
+                                <label for="vision-llm-prompt-de">German Document Prompt</label>
+                                <textarea id="vision-llm-prompt-de" rows="12" placeholder="Prompt for German documents..."></textarea>
+                                <span class="form-hint">Prompt sent with document images for German documents.</span>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="vision-llm-prompt-en">English Document Prompt</label>
+                                <textarea id="vision-llm-prompt-en" rows="12" placeholder="Prompt for English documents..."></textarea>
+                                <span class="form-hint">Prompt sent with document images for English documents.</span>
+                            </div>
+                            
+                            <div class="form-actions">
+                                <button type="button" class="btn btn-primary" onclick="saveVisionLLMConfig()">Save Vision Settings</button>
+                                <span id="vision-llm-save-status" class="save-status"></span>
+                            </div>
+                        </div>
+                    </section>
                 </div>
             </div>
         </main>
@@ -568,6 +632,12 @@
                 <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
             </div>
             <span class="progress-percentage" id="progress-percentage">0%</span>
+            <button class="progress-cancel-btn" id="progress-cancel-btn" onclick="cancelProcessing()" title="Cancel processing">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
         </div>
         <div class="progress-steps" id="progress-steps" style="display: none;"></div>
     </div>

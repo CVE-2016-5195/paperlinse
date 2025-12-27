@@ -141,24 +141,121 @@ Respond ONLY with a JSON object in this format:
 
 
 # Recommended LLM models - all multilingual with German support
-# Format: (ollama_id, display_name, min_memory_mb, description)
+# Format: (model_id, display_name, size_mb, description, model_type)
+# model_type: "text" for Ollama models, "vision" for OpenVINO vision models
 RECOMMENDED_MODELS = [
-    ("granite4:350m", "Granite4 350M", 512, "IBM, 12 languages, smallest & fastest"),
-    ("qwen2.5:0.5b", "Qwen2.5 0.5B", 600, "29 languages, good JSON output"),
-    ("qwen3:0.6b", "Qwen3 0.6B", 768, "100+ languages, good for low-power devices"),
-    ("gemma3:1b", "Gemma3 1B", 1024, "Google, 140+ languages, strong multilingual"),
-    ("qwen2.5:1.5b", "Qwen2.5 1.5B", 1500, "29 languages, excellent instruction following"),
-    ("qwen2.5:3b", "Qwen2.5 3B", 2500, "29 languages, best quality under 3GB"),
-    ("qwen3:4b", "Qwen3 4B", 3000, "100+ languages, best quality for 8GB systems"),
+    ("granite4:350m", "Granite4 350M", 512, "IBM, 12 languages, smallest & fastest", "text"),
+    ("qwen2.5:0.5b", "Qwen2.5 0.5B", 600, "29 languages, good JSON output", "text"),
+    ("qwen3:0.6b", "Qwen3 0.6B", 768, "100+ languages, good for low-power devices", "text"),
+    ("gemma3:1b", "Gemma3 1B", 1024, "Google, 140+ languages, strong multilingual", "text"),
+    ("qwen2.5:1.5b", "Qwen2.5 1.5B", 1500, "29 languages, excellent instruction following", "text"),
+    ("qwen2.5:3b", "Qwen2.5 3B", 2500, "29 languages, best quality under 3GB", "text"),
+    ("qwen3:4b", "Qwen3 4B", 3000, "100+ languages, best quality for 8GB systems", "text"),
+    # Vision models (OpenVINO) - extract metadata directly from images
+    ("turingevo/Qwen2.5-VL-3B-Instruct-openvino-int4", "Qwen2.5-VL 3B (Vision)", 2000, "Vision model - extracts metadata from document images", "vision"),
+]
+
+
+# Legacy: Keep VISION_LLM_MODELS for backward compatibility
+VISION_LLM_MODELS = [
+    (m[0], m[1], m[2], m[3]) for m in RECOMMENDED_MODELS if len(m) > 4 and m[4] == "vision"
 ]
 
 
 class LLMConfig(BaseModel):
-    """Configuration for LLM document analysis."""
-    model: str = ""  # Empty means use default (qwen3:0.6b)
+    """Configuration for LLM prompts and model."""
+    model: str = ""  # Ollama model name (empty = use default from OLLAMA_MODEL env)
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     user_prompt_de: str = DEFAULT_USER_PROMPT_DE
     user_prompt_en: str = DEFAULT_USER_PROMPT_EN
+
+
+# Default Vision LLM prompts - for direct image analysis
+# Note: {num_pages} placeholder is replaced with actual page count
+DEFAULT_VISION_PROMPT_DE = """Analysiere dieses Dokument und extrahiere die Informationen.
+
+WICHTIG für das "topic" Feld:
+1. Suche nach der HAUPTÜBERSCHRIFT oder dem BETREFF des Dokuments
+2. Bei offiziellen Briefen: Suche nach "Betreff:", "Betrifft:", oder einer fett gedruckten Überschrift
+3. Bei Formularen: Nutze den Titel des Formulars (z.B. "Vorladung", "Bescheid", "Mitteilung")
+4. Der topic sollte den GRUND oder ZWECK des Dokuments beschreiben, nicht nur die Dokumentart
+5. Beispiele: "Vorladung zur Vernehmung", "Kündigung Arbeitsvertrag", "Mahnung Rechnung 12345"
+
+WICHTIG für "identifiers" (Kennzeichen/Referenznummern):
+1. Suche nach ALLEN Referenznummern, Aktenzeichen, Vorgangsnummern, Kundennummern, Rechnungsnummern
+2. Beispiele: Vorgangsnummer, Aktenzeichen, Rechnungsnummer, Kundennummer, Auftragsnummer
+3. Jedes Kennzeichen hat einen "type" (was es ist) und einen "value" (der Wert)
+
+Lies das Dokument sorgfältig und extrahiere die TATSÄCHLICHEN Werte aus dem Dokumentinhalt.
+Kopiere NICHT die Beispiele - extrahiere die echten Daten aus dem Bild.
+
+Antworte NUR mit einem JSON-Objekt:
+{
+    "sender": "<extrahiere den tatsächlichen Absender aus dem Dokument>",
+    "receiver": "<extrahiere den tatsächlichen Empfänger oder leer lassen>",
+    "document_date": "<YYYY-MM-DD Format oder leer>",
+    "topic": "<extrahiere den tatsächlichen Betreff/Titel des Dokuments>",
+    "summary": "<schreibe eine kurze Zusammenfassung des Dokumentinhalts>",
+    "document_type": "<wähle: letter|invoice|payslip|contract|receipt|statement|notification|summons|certificate|form|report|other>",
+    "identifiers": [
+        {"type": "<Art der Nummer z.B. Rechnungsnummer>", "value": "<der tatsächliche Wert>"}
+    ],
+    "iban": "<extrahiere IBAN falls vorhanden oder leer>",
+    "bic": "<extrahiere BIC falls vorhanden oder leer>",
+    "due_date": "<YYYY-MM-DD falls Fälligkeitsdatum vorhanden oder leer>"
+}
+
+WICHTIG: Ersetze alle <...> Platzhalter mit den echten Werten aus dem Dokument!"""
+
+DEFAULT_VISION_PROMPT_EN = """Analyze this document and extract the information.
+
+IMPORTANT for the "topic" field:
+1. Look for the MAIN HEADING or SUBJECT of the document
+2. For official letters: Look for "Subject:", "Re:", or a bold heading
+3. For forms: Use the form title (e.g. "Summons", "Notice", "Certificate")
+4. The topic should describe the PURPOSE or REASON of the document, not just the document type
+5. Examples: "Summons for Questioning", "Employment Contract Termination", "Payment Reminder Invoice 12345"
+
+IMPORTANT for "identifiers" (reference numbers):
+1. Look for ALL reference numbers, case numbers, transaction numbers, customer numbers, invoice numbers
+2. Examples: Reference Number, Case Number, Invoice Number, Customer Number, Order Number
+3. Each identifier has a "type" (what it is) and a "value" (the actual number/code)
+
+Read the document carefully and extract the ACTUAL values from the document content.
+Do NOT copy the examples - extract the real data from the image.
+
+Respond ONLY with a JSON object:
+{
+    "sender": "<extract the actual sender from the document>",
+    "receiver": "<extract the actual recipient or leave empty>",
+    "document_date": "<YYYY-MM-DD format or empty>",
+    "topic": "<extract the actual subject/title of the document>",
+    "summary": "<write a brief summary of the document content>",
+    "document_type": "<choose: letter|invoice|payslip|contract|receipt|statement|notification|summons|certificate|form|report|other>",
+    "identifiers": [
+        {"type": "<type of number e.g. Invoice Number>", "value": "<the actual value>"}
+    ],
+    "iban": "<extract IBAN if present or empty>",
+    "bic": "<extract BIC if present or empty>",
+    "due_date": "<YYYY-MM-DD if due date present or empty>"
+}
+
+IMPORTANT: Replace all <...> placeholders with real values from the document!"""
+
+
+class VisionLLMConfig(BaseModel):
+    """Configuration for Vision LLM (Qwen2.5-VL with OpenVINO)."""
+    enabled: bool = False  # Whether to use vision LLM for metadata extraction
+    model_path: str = "models/Qwen3-VL-2B-Instruct-int4"  # Local path to model
+    device: str = "CPU"  # Inference device: CPU, GPU, or NPU
+    # Image resizing for performance optimization
+    # Qwen2.5-VL uses 14x14 patches, dimensions should be multiples of 28
+    # Recommended: 256*28*28 (~200k) for speed, 1280*28*28 (~1M) for quality
+    max_pixels: int = 512 * 28 * 28  # ~401k pixels - balanced for iGPU INT4
+    min_pixels: int = 4 * 28 * 28  # ~3.1k pixels - minimum size
+    # Vision LLM prompts (separate from text LLM prompts)
+    prompt_de: str = DEFAULT_VISION_PROMPT_DE
+    prompt_en: str = DEFAULT_VISION_PROMPT_EN
 
 
 class ProcessingConfig(BaseModel):
@@ -172,6 +269,7 @@ class AppConfig(BaseModel):
     incoming_share: IncomingShareConfig = Field(default_factory=IncomingShareConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    vision_llm: VisionLLMConfig = Field(default_factory=VisionLLMConfig)
     processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
     
     def save(self) -> None:

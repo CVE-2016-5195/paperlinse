@@ -367,8 +367,8 @@ start_ipex_ollama() {
     export OLLAMA_HOST=0.0.0.0:11434
     export OLLAMA_MODELS="$IPEX_OLLAMA_DIR/models"
     
-    # Add IPEX-LLM libraries to LD_LIBRARY_PATH
-    export LD_LIBRARY_PATH="$IPEX_OLLAMA_DIR:${LD_LIBRARY_PATH:-}"
+    # Note: LD_LIBRARY_PATH is set only for the Ollama process below,
+    # NOT globally, to avoid conflicts with PaddlePaddle's oneDNN
     
     # Create models directory
     mkdir -p "$OLLAMA_MODELS"

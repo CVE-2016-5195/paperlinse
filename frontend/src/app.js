@@ -383,6 +383,9 @@ async function loadConfig() {
         
         // Load processing config for settings page
         loadProcessingConfig();
+        
+        // Load Vision LLM config for settings page
+        loadVisionLLMConfig();
     } catch (error) {
         console.error('Failed to load config:', error);
     }
@@ -691,6 +694,44 @@ async function updateProgressFromServer() {
     }
 }
 
+async function cancelProcessing(filePath = null) {
+    try {
+        const cancelBtn = document.getElementById('progress-cancel-btn');
+        if (cancelBtn) {
+            cancelBtn.disabled = true;
+            cancelBtn.style.opacity = '0.5';
+        }
+        
+        const response = await apiPost('/processing/cancel', { file_path: filePath });
+        
+        if (response.success) {
+            if (response.cancelled_count > 0) {
+                showNotification(`Cancelled ${response.cancelled_count} file(s)`, 'info');
+            } else {
+                showNotification('No files were being processed', 'info');
+            }
+        } else {
+            showNotification(`Failed to cancel: ${response.message}`, 'error');
+        }
+        
+        // Refresh progress bar and queue page
+        await updateProgressFromServer();
+        if (isPageActive('queue')) {
+            await loadIncomingFiles();
+        }
+        
+    } catch (error) {
+        console.error('Error cancelling processing:', error);
+        showNotification('Failed to cancel processing', 'error');
+    } finally {
+        const cancelBtn = document.getElementById('progress-cancel-btn');
+        if (cancelBtn) {
+            cancelBtn.disabled = false;
+            cancelBtn.style.opacity = '1';
+        }
+    }
+}
+
 function updateProgressBar(data) {
     const container = document.getElementById('progress-bar-container');
     const statusEl = document.getElementById('progress-status');
@@ -758,6 +799,7 @@ function getStepIcon(step) {
         'llm': '🤖',
         'saving': '💾',
         'completed': '✅',
+        'cancelled': '🚫',
         'error': '❌'
     };
     return icons[step] || '⏳';
@@ -771,6 +813,7 @@ function getStepName(step, llmModel = '') {
         'llm': llmModel ? `Checking text (${llmModel})` : 'Checking text',
         'saving': 'Saving',
         'completed': 'Done',
+        'cancelled': 'Cancelled',
         'error': 'Error'
     };
     return names[step] || step;
@@ -809,21 +852,47 @@ async function loadModels() {
         
         if (loadingEl) loadingEl.style.display = 'none';
         
+        // Check if we have any vision models active
+        const activeVisionModel = data.models.find(m => m.model_type === 'vision' && m.current);
+        
         // Show Ollama status
         statusContainer.innerHTML = `
             <div class="ollama-status ${data.ollama_available ? 'connected' : 'disconnected'}">
                 <span class="status-dot"></span>
                 <span>Ollama ${data.ollama_available ? 'Connected' : 'Not Available'}</span>
             </div>
+            ${activeVisionModel ? `
+                <div class="vision-status connected">
+                    <span class="status-dot"></span>
+                    <span>Vision LLM Active</span>
+                </div>
+            ` : ''}
         `;
         
-        if (!data.ollama_available) {
-            listEl.innerHTML = '<p class="placeholder-text">Cannot connect to Ollama. Make sure Ollama is running.</p>';
+        if (!data.ollama_available && !data.models.some(m => m.model_type === 'vision' && m.installed)) {
+            listEl.innerHTML = '<p class="placeholder-text">Cannot connect to Ollama and no vision models installed. Make sure Ollama is running or install a vision model.</p>';
             return;
         }
         
-        // Render models
-        const modelsHtml = data.models.map(model => renderModelCard(model)).join('');
+        // Separate text and vision models for better organization
+        const textModels = data.models.filter(m => m.model_type !== 'vision');
+        const visionModels = data.models.filter(m => m.model_type === 'vision');
+        
+        let modelsHtml = '';
+        
+        // Render text models
+        if (textModels.length > 0) {
+            modelsHtml += '<h4 class="models-section-title">Text Models (Ollama)</h4>';
+            modelsHtml += textModels.map(model => renderModelCard(model)).join('');
+        }
+        
+        // Render vision models
+        if (visionModels.length > 0) {
+            modelsHtml += '<h4 class="models-section-title">Vision Models (OpenVINO)</h4>';
+            modelsHtml += '<p class="models-section-desc">Vision models extract metadata directly from document images, bypassing OCR for metadata extraction.</p>';
+            modelsHtml += visionModels.map(model => renderModelCard(model)).join('');
+        }
+        
         listEl.innerHTML = modelsHtml || '<p class="placeholder-text">No models configured</p>';
         
     } catch (error) {
@@ -838,11 +907,18 @@ function renderModelCard(model) {
         ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>'
         : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>';
     
+    // Badge for status
     let badge = '';
     if (model.current) {
         badge = '<span class="model-badge current">Active</span>';
     } else if (model.pulling) {
         badge = '<span class="model-badge pulling">Downloading...</span>';
+    }
+    
+    // Badge for model type
+    let typeBadge = '';
+    if (model.model_type === 'vision') {
+        typeBadge = '<span class="model-badge vision">Vision</span>';
     }
     
     let actions = '';
@@ -866,8 +942,13 @@ function renderModelCard(model) {
         actions = `<button class="btn btn-primary btn-small" onclick="downloadModel('${escapeAttr(model.id)}')">Download</button>`;
     }
     
+    // Size display - vision models are in MB but often larger, keep same format
+    const sizeDisplay = model.size_mb >= 1000 
+        ? `~${(model.size_mb / 1024).toFixed(1)} GB` 
+        : `~${model.size_mb} MB`;
+    
     return `
-        <div class="model-card ${model.current ? 'current' : ''} ${!model.installed ? 'not-installed' : ''}">
+        <div class="model-card ${model.current ? 'current' : ''} ${!model.installed ? 'not-installed' : ''} ${model.model_type === 'vision' ? 'vision-model' : ''}">
             <div class="model-status-icon ${model.installed ? 'installed' : 'not-installed'}">
                 ${installedIcon}
             </div>
@@ -875,10 +956,12 @@ function renderModelCard(model) {
                 <div class="model-name">
                     ${escapeHtml(model.name)}
                     <span class="model-id">${escapeHtml(model.id)}</span>
+                    ${typeBadge}
                     ${badge}
                 </div>
                 <div class="model-meta">
-                    <span class="size">~${model.size_mb} MB</span>
+                    <span class="size">${sizeDisplay}</span>
+                    ${model.model_type === 'vision' ? '<span class="model-type-label">OpenVINO</span>' : '<span class="model-type-label">Ollama</span>'}
                 </div>
                 <div class="model-description">${escapeHtml(model.description)}</div>
             </div>
@@ -896,14 +979,19 @@ async function switchModel(modelId) {
         const result = await apiPost(`/models/${encodeURIComponent(modelId)}/switch`);
         
         if (result.status === 'download_required') {
-            // Model needs to be downloaded first
-            if (confirm(`Model ${modelId} is not installed. Download it now?`)) {
-                await downloadModel(modelId);
-            }
+            // Model needs to be downloaded first - show notification and offer download
+            const modelType = result.model_type === 'vision' ? 'Vision model' : 'Model';
+            showNotification(`${modelType} ${modelId} is not installed. Click Download to install it.`, 'warning', 6000);
             return;
         }
         
-        showNotification(`Switched to ${modelId}`, 'success');
+        // Show appropriate message based on model type
+        if (result.model_type === 'vision') {
+            showNotification(`Switched to vision model ${modelId}. Vision LLM is now enabled.`, 'success');
+        } else {
+            showNotification(`Switched to ${modelId}`, 'success');
+        }
+        
         await loadModels();
     } catch (error) {
         console.error('Failed to switch model:', error);
@@ -947,6 +1035,7 @@ async function downloadModel(modelId) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        let lastError = null;
         
         while (true) {
             const { done, value } = await reader.read();
@@ -963,8 +1052,12 @@ async function downloadModel(modelId) {
                     try {
                         const data = JSON.parse(line.slice(6));
                         
-                        // Update UI
-                        statusEl.textContent = data.status || 'Downloading...';
+                        // Update UI with message if available
+                        if (data.message) {
+                            statusEl.textContent = data.message;
+                        } else if (data.status) {
+                            statusEl.textContent = data.status;
+                        }
                         
                         if (data.percent !== undefined) {
                             fillEl.style.width = `${data.percent}%`;
@@ -979,20 +1072,22 @@ async function downloadModel(modelId) {
                         }
                         
                         if (data.status === 'error') {
-                            throw new Error(data.error || 'Download failed');
+                            lastError = data.error || 'Download failed';
+                            // Don't throw yet - let the stream finish
                         }
-                    } catch (e) {
-                        if (e.message !== 'Download failed') {
-                            console.debug('SSE parse error:', e);
-                        } else {
-                            throw e;
-                        }
+                    } catch (parseError) {
+                        console.debug('SSE parse error:', parseError, 'line:', line);
                     }
                 }
             }
         }
         
-        // If we get here without success, reload models anyway
+        // Check if we had an error during streaming
+        if (lastError) {
+            throw new Error(lastError);
+        }
+        
+        // If we get here without success or error, reload models anyway
         await loadModels();
         progressEl.style.display = 'none';
         
@@ -1055,6 +1150,126 @@ async function resetLLMConfig() {
         console.error('Failed to reset LLM config:', error);
         showNotification('Failed to reset LLM config: ' + error.message, 'error');
     }
+}
+
+// ============================================================================
+// Vision LLM Configuration
+// ============================================================================
+
+async function loadVisionLLMConfig() {
+    try {
+        const config = await apiGet('/config/vision-llm');
+        
+        // Only update device selector - model selection is now handled via the main models list
+        const deviceSelect = document.getElementById('vision-llm-device');
+        const statusEl = document.getElementById('vision-llm-status');
+        const maxPixelsSlider = document.getElementById('vision-llm-max-pixels');
+        const maxPixelsDisplay = document.getElementById('vision-llm-max-pixels-display');
+        const promptDeEl = document.getElementById('vision-llm-prompt-de');
+        const promptEnEl = document.getElementById('vision-llm-prompt-en');
+        
+        if (deviceSelect) deviceSelect.value = config.device || 'CPU';
+        
+        // Set max_pixels slider value
+        if (maxPixelsSlider) {
+            maxPixelsSlider.value = config.max_pixels || 401408;
+            updateMaxPixelsDisplay(maxPixelsSlider.value);
+        }
+        
+        // Set vision prompts
+        if (promptDeEl) promptDeEl.value = config.prompt_de || '';
+        if (promptEnEl) promptEnEl.value = config.prompt_en || '';
+        
+        // Update status indicator based on whether vision LLM is active
+        if (statusEl) {
+            if (config.available) {
+                statusEl.className = 'status-indicator status-success';
+                statusEl.textContent = 'Active';
+            } else if (config.enabled) {
+                statusEl.className = 'status-indicator status-warning';
+                statusEl.textContent = 'Not Ready';
+                statusEl.title = config.status_message || 'Model not loaded';
+            } else {
+                statusEl.className = 'status-indicator status-disabled';
+                statusEl.textContent = 'Disabled';
+            }
+        }
+        
+    } catch (error) {
+        console.error('Failed to load Vision LLM config:', error);
+    }
+}
+
+function updateMaxPixelsDisplay(value) {
+    const display = document.getElementById('vision-llm-max-pixels-display');
+    if (!display) return;
+    
+    const pixels = parseInt(value);
+    if (pixels < 500000) {
+        display.textContent = `~${Math.round(pixels / 1000)}k px (fast)`;
+    } else if (pixels < 1500000) {
+        display.textContent = `~${(pixels / 1000000).toFixed(1)}M px (balanced)`;
+    } else {
+        display.textContent = `~${(pixels / 1000000).toFixed(1)}M px (quality)`;
+    }
+}
+
+async function saveVisionLLMConfig() {
+    const statusEl = document.getElementById('vision-llm-save-status');
+    statusEl.className = 'save-status';
+    statusEl.textContent = 'Saving...';
+    
+    // Save device, max_pixels and prompt settings
+    const device = document.getElementById('vision-llm-device').value;
+    const maxPixelsSlider = document.getElementById('vision-llm-max-pixels');
+    const maxPixels = maxPixelsSlider ? parseInt(maxPixelsSlider.value) : 401408;
+    const promptDe = document.getElementById('vision-llm-prompt-de')?.value || '';
+    const promptEn = document.getElementById('vision-llm-prompt-en')?.value || '';
+    
+    try {
+        await apiPost('/config/vision-llm', {
+            device: device,
+            max_pixels: maxPixels,
+            prompt_de: promptDe,
+            prompt_en: promptEn
+        });
+        
+        statusEl.className = 'save-status success';
+        statusEl.textContent = 'Saved!';
+        showNotification('Vision LLM settings saved', 'success');
+        setTimeout(() => { statusEl.textContent = ''; }, 2000);
+        
+        // Reload to update status
+        loadVisionLLMConfig();
+    } catch (error) {
+        statusEl.className = 'save-status error';
+        statusEl.textContent = 'Failed to save: ' + error.message;
+        showNotification('Failed to save Vision LLM config: ' + error.message, 'error');
+    }
+}
+
+async function resetVisionLLMPrompts() {
+    if (!confirm('Reset Vision LLM prompts to their default values?')) {
+        return;
+    }
+    
+    try {
+        await apiPost('/config/vision-llm/reset-prompts');
+        await loadVisionLLMConfig();
+        showNotification('Vision LLM prompts reset to defaults', 'success');
+    } catch (error) {
+        console.error('Failed to reset Vision LLM prompts:', error);
+        showNotification('Failed to reset Vision LLM prompts: ' + error.message, 'error');
+    }
+}
+
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        showNotification('Command copied to clipboard', 'success');
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        showNotification('Failed to copy to clipboard', 'error');
+    });
 }
 
 function updateDashboard(config) {
@@ -2072,6 +2287,7 @@ window.reprocessDocument = reprocessDocument;
 window.triggerScan = triggerScan;
 window.processQueue = processQueue;
 window.toggleProcessingMode = toggleProcessingMode;
+window.cancelProcessing = cancelProcessing;
 window.toggleShareEdit = toggleShareEdit;
 window.cancelShareEdit = cancelShareEdit;
 window.saveShareConfig = saveShareConfig;
@@ -2097,6 +2313,10 @@ window.deleteModel = deleteModel;
 // Related documents and identifier search
 window.loadRelatedDocuments = loadRelatedDocuments;
 window.searchByIdentifier = searchByIdentifier;
+// Vision LLM configuration
+window.saveVisionLLMConfig = saveVisionLLMConfig;
+window.resetVisionLLMPrompts = resetVisionLLMPrompts;
+window.copyToClipboard = copyToClipboard;
 
 // ============================================================================
 // Initialize
@@ -2110,6 +2330,14 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Start progress bar polling (as backup/complement to SSE)
     startProgressPolling();
+    
+    // Vision LLM max pixels slider live update
+    const maxPixelsSlider = document.getElementById('vision-llm-max-pixels');
+    if (maxPixelsSlider) {
+        maxPixelsSlider.addEventListener('input', (e) => {
+            updateMaxPixelsDisplay(e.target.value);
+        });
+    }
     
     // Close modals on escape key
     document.addEventListener('keydown', (e) => {

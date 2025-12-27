@@ -622,8 +622,8 @@ class Database:
         async with cls.connection() as conn:
             count = 0
             for ident in identifiers:
-                ident_type = ident.get('type', '').strip()
-                ident_value = ident.get('value', '').strip()
+                ident_type = ident.get('type', '').strip()[:100]  # Truncate to DB column size
+                ident_value = ident.get('value', '').strip()[:500]  # Truncate to DB column size
                 if ident_type and ident_value:
                     await conn.execute("""
                         INSERT INTO document_identifiers (
